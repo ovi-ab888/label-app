@@ -1,4 +1,4 @@
-import io
+from io import BytesIO
 import json
 import os
 import tempfile
@@ -130,7 +130,7 @@ if uploaded:
 elif sample_btn:
     sample_path = SAMPLES_DIR / "Data.csv"
     if not sample_path.exists():
-        st.error("samples/Data.csv not found.")
+        df, errors = data_parser.load_csv(BytesIO(csv_bytes))
         st.stop()
     df, errors = data_parser.load_csv(sample_path)
 else:
