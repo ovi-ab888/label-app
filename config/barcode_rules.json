@@ -1,1 +1,7 @@
+{
+  "type": "EAN13",
+  "allow_fallback": ["Code128"],
+  "ean13": { "min_length": 12, "max_length": 13 },
+  "code128": { "min_length": 1, "max_length": 48 }
+}
 
