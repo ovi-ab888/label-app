@@ -218,6 +218,64 @@ with col_p2:
 # -------------------------------------------------
 # Batch generation
 # -------------------------------------------------
+
+# ----- One-page layout controls -----
+st.markdown("### One-page Layout")
+col_l, col_r, col_r2 = st.columns([1,1,1])
+with col_l:
+    page_size_sel = st.selectbox("Paper size", ["A4", "LETTER", "A3"], index=0)
+with col_r:
+    cols_n = st.number_input("Columns", min_value=1, max_value=12, value=6, step=1)
+with col_r2:
+    margin_mm = st.number_input("Margin (mm)", min_value=0.0, max_value=50.0, value=10.0, step=1.0)
+gutter_mm = st.number_input("Gutter (mm)", min_value=0.0, max_value=30.0, value=6.0, step=0.5)
+
+if st.button("Generate ONE PAGE (PDF)", use_container_width=True):
+    if not any(mapping_cols.values()):
+        st.error("Please map at least one placeholder to a CSV column.")
+        st.stop()
+
+    progress = st.progress(0, text="Preparing drawings...")
+    svgs = []
+    total = len(df)
+
+    for i, (_, row) in enumerate(df.iterrows(), start=1):
+        row_dict = row.to_dict()
+
+        # barcode (optional)
+        barcode_uri = None
+        if barcode_col and pd.notna(row_dict.get(barcode_col, None)):
+            try:
+                png = bc.generate_barcode_png(str(row_dict.get(barcode_col)), kind=barcode_type)
+                barcode_uri = utils.png_bytes_to_data_uri(png)
+            except Exception:
+                barcode_uri = None
+
+        # fill svg
+        vm = {pid: utils.to_str(row_dict.get(colname, "")) for pid, colname in mapping_cols.items() if colname}
+        svg_txt = templater.fill_svg(template_svg_text, vm, barcode_uri)
+        svgs.append(svg_txt)
+        progress.progress(min(i / max(total, 1), 1.0), text=f"Prepared {i}/{total}")
+
+    # compose one page (vector-safe)
+    try:
+        one_pdf = pdf_engine.svgs_grid_to_pdf(
+            svgs,
+            page_size=page_size_sel,
+            cols=int(cols_n),
+            margin_mm=float(margin_mm),
+            gutter_mm=float(gutter_mm),
+        )
+        st.download_button(
+            "Download ONE PAGE PDF",
+            data=one_pdf,
+            file_name="labels_one_page.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+        )
+    except Exception as e:
+        st.error(f"One-page layout failed: {e}")
+
 st.subheader("Batch Generation")
 
 def build_value_map_for_row(row_dict):
