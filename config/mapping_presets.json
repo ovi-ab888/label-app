@@ -1,1 +1,10 @@
+{
+  "default": {
+    "var_PRODUCT_NAME": "PRODUCT_NAME",
+    "var_COLOUR": "COLOUR",
+    "var_STYLE": "STYLE",
+    "var_BATCH": "BATCH",
+    "var_BarcodeImg": "Barcode"
+  }
+}
 
