@@ -133,8 +133,8 @@ elif sample_btn:
     if not sample_path.exists():
         df, errors = data_parser.load_csv(BytesIO(csv_bytes))
         st.stop()
-    - df, errors = data_parser.load_csv(io.BytesIO(csv_bytes))
-+ df, errors = data_parser.load_csv(BytesIO(csv_bytes))
+    df, errors = data_parser.load_csv(io.BytesIO(csv_bytes))
+df, errors = data_parser.load_csv(BytesIO(csv_bytes))
 else:
     st.info("Upload a CSV file or click 'Use samples/Data.csv'.")
     st.stop()
