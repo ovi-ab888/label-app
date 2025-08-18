@@ -1,1 +1,5 @@
+page_size = "A4"
+dpi = 96
+pdf_merge = false
+zip_chunk_size = 200
 
