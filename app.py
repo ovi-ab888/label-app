@@ -1,9 +1,8 @@
-import io
-from io import BytesIO
 import json
 import os
 import tempfile
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path
 
 import pandas as pd
@@ -23,7 +22,7 @@ TEMPLATE_DIR = APP_ROOT / "templates"
 SAMPLES_DIR = APP_ROOT / "samples"
 CONFIG_DIR = APP_ROOT / "config"
 
-# Cloud-safe outputs: use /tmp on cloud, repo ./outputs on local
+# Cloud-safe outputs: /tmp (Cloud) বা ./outputs (Local)
 RUNNING_IN_CLOUD = bool(
     os.environ.get("STREAMLIT_RUNTIME")
     or os.environ.get("STREAMLIT_SERVER")
@@ -51,7 +50,6 @@ def ensure_dir(p: Path):
     p.mkdir(parents=True, exist_ok=True)
 
 
-# Make sure output dirs exist without crashing when a file blocks the path
 ensure_dir(OUTPUTS_DIR)
 ensure_dir(OUTPUTS_DIR / "previews")
 ensure_dir(OUTPUTS_DIR / "batches")
@@ -59,7 +57,7 @@ ensure_dir(OUTPUTS_DIR / "batches")
 st.set_page_config(page_title="Label Generator", page_icon="🏷️", layout="wide")
 
 # -------------------------------------------------
-# Config
+# Helpers & config
 # -------------------------------------------------
 def list_templates():
     if not TEMPLATE_DIR.exists():
@@ -73,12 +71,7 @@ def load_config():
         import tomllib  # py3.11+
     except Exception:
         import tomli as tomllib  # py3.10 fallback
-    cfg = {
-        "page_size": "A4",
-        "dpi": 96,
-        "pdf_merge": False,
-        "zip_chunk_size": 200,
-    }
+    cfg = {"page_size": "A4", "dpi": 96, "pdf_merge": False, "zip_chunk_size": 200}
     if app_cfg.exists():
         with open(app_cfg, "rb") as f:
             cfg.update(tomllib.load(f))
@@ -88,11 +81,10 @@ def load_config():
 CFG = load_config()
 
 # -------------------------------------------------
-# Sidebar — Template & Settings
+# UI — sidebar
 # -------------------------------------------------
 with st.sidebar:
     st.header("Templates")
-
     templates = list_templates()
     if not templates:
         st.warning("No SVG templates found in `templates/`. Add at least one.")
@@ -108,14 +100,13 @@ with st.sidebar:
     barcode_type = st.selectbox("Barcode type", ["EAN13", "Code128"], index=0)
     zip_chunk_size = st.number_input(
         "ZIP chunk size (rows per chunk)",
-        min_value=50,
-        max_value=2000,
+        min_value=50, max_value=2000,
         value=int(CFG.get("zip_chunk_size", 200)),
         step=50,
     )
 
 # -------------------------------------------------
-# Main — Data load
+# Main — data load
 # -------------------------------------------------
 st.title("🏷️ Label Generator (CSV → SVG → PDF)")
 
@@ -127,14 +118,13 @@ with col_s:
 
 if uploaded:
     csv_bytes = uploaded.read()
-    df, errors = data_parser.load_csv(io.BytesIO(csv_bytes))
+    df, errors = data_parser.load_csv(BytesIO(csv_bytes))
 elif sample_btn:
     sample_path = SAMPLES_DIR / "Data.csv"
     if not sample_path.exists():
-        df, errors = data_parser.load_csv(BytesIO(csv_bytes))
+        st.error("samples/Data.csv not found.")
         st.stop()
-    df, errors = data_parser.load_csv(io.BytesIO(csv_bytes))
-df, errors = data_parser.load_csv(BytesIO(csv_bytes))
+    df, errors = data_parser.load_csv(sample_path)
 else:
     st.info("Upload a CSV file or click 'Use samples/Data.csv'.")
     st.stop()
@@ -155,7 +145,7 @@ text_placeholders = [p for p in placeholders if p != "var_BarcodeImg"]
 
 st.subheader("Field Mapping")
 
-# Try to auto-map from config/mapping_presets.json
+# auto-map from config/mapping_presets.json (optional)
 preset = {}
 try:
     preset_path = CONFIG_DIR / "mapping_presets.json"
@@ -169,7 +159,6 @@ if "mapping" not in st.session_state:
 
 mapping_cols = {}
 for pid in text_placeholders:
-    # Heuristic default: remove 'var_' and case-insensitive match to columns
     default_guess = preset.get(pid)
     if not default_guess:
         guess = pid.replace("var_", "").strip().lower()
@@ -196,7 +185,7 @@ if "var_BarcodeImg" in placeholders:
     )
 
 # -------------------------------------------------
-# Row selection & Preview
+# Preview
 # -------------------------------------------------
 st.subheader("Preview")
 row_idx = st.number_input("Row index (0-based)", min_value=0, max_value=max(len(df) - 1, 0), value=0)
@@ -205,33 +194,21 @@ col_p1, col_p2 = st.columns([1, 1])
 with col_p1:
     if st.button("Generate Preview PDF", type="primary", use_container_width=True):
         row = df.iloc[int(row_idx)].to_dict()
-        # Build value map for text placeholders
-        value_map = {}
-        for pid, colname in mapping_cols.items():
-            if colname:
-                raw = row.get(colname, "")
-                value_map[pid] = utils.to_str(raw)
-        # Barcode image (optional)
+        value_map = {pid: utils.to_str(row.get(colname, "")) for pid, colname in mapping_cols.items() if colname}
+
         barcode_data_uri = None
         if barcode_col and barcode_col in df.columns and pd.notna(row.get(barcode_col, None)):
-            bdata = str(row.get(barcode_col))
             try:
-                png_bytes = bc.generate_barcode_png(bdata, kind=barcode_type)
+                png_bytes = bc.generate_barcode_png(str(row.get(barcode_col)), kind=barcode_type)
                 barcode_data_uri = utils.png_bytes_to_data_uri(png_bytes)
             except Exception as e:
                 st.error(f"Barcode generation failed: {e}")
-        # Fill SVG
+
         filled_svg = templater.fill_svg(template_svg_text, value_map, barcode_data_uri)
-        # Convert to PDF
         pdf_bytes = pdf_engine.svg_to_pdf(filled_svg, dpi=int(CFG.get("dpi", 96)))
+
         fname = utils.safe_filename(f"preview_{row_idx}_{row.get('PRODUCT_NAME', 'label')}.pdf")
-        st.download_button(
-            "Download preview PDF",
-            data=pdf_bytes,
-            file_name=fname,
-            mime="application/pdf",
-            use_container_width=True,
-        )
+        st.download_button("Download preview PDF", data=pdf_bytes, file_name=fname, mime="application/pdf", use_container_width=True)
         st.session_state["_last_preview_pdf"] = pdf_bytes
 
 with col_p2:
@@ -244,11 +221,7 @@ with col_p2:
 st.subheader("Batch Generation")
 
 def build_value_map_for_row(row_dict):
-    vm = {}
-    for pid, colname in mapping_cols.items():
-        if colname:
-            vm[pid] = utils.to_str(row_dict.get(colname, ""))
-    return vm
+    return {pid: utils.to_str(row_dict.get(colname, "")) for pid, colname in mapping_cols.items() if colname}
 
 if st.button("Generate ALL (ZIP)", use_container_width=True):
     if not any(mapping_cols.values()):
@@ -262,31 +235,21 @@ if st.button("Generate ALL (ZIP)", use_container_width=True):
         for i, (idx, row) in enumerate(df.iterrows(), start=1):
             row_dict = row.to_dict()
 
-            # barcode (optional)
             barcode_uri = None
             if barcode_col and pd.notna(row_dict.get(barcode_col, None)):
                 try:
                     png = bc.generate_barcode_png(str(row_dict.get(barcode_col)), kind=barcode_type)
                     barcode_uri = utils.png_bytes_to_data_uri(png)
                 except Exception:
-                    barcode_uri = None  # row will still be generated without barcode image
+                    barcode_uri = None
 
-            # value map + svg → pdf
             vm = build_value_map_for_row(row_dict)
             svg_txt = templater.fill_svg(template_svg_text, vm, barcode_uri)
             pdf_bytes = pdf_engine.svg_to_pdf(svg_txt, dpi=int(CFG.get("dpi", 96)))
 
-            # filename
             base = row_dict.get("PRODUCT_NAME") or row_dict.get("STYLE") or row_dict.get("BATCH") or f"row{idx}"
             progress.progress(min(i / max(total, 1), 1.0), text=f"Generated {i}/{total}")
-
             yield utils.safe_filename(f"{base}_{idx}.pdf"), pdf_bytes
 
     zip_bytes = pdf_engine.zip_pdfs(each_pdf())
-    st.download_button(
-        "Download ALL as ZIP",
-        data=zip_bytes,
-        file_name="labels_batch.zip",
-        mime="application/zip",
-        use_container_width=True,
-    )
+    st.download_button("Download ALL as ZIP", data=zip_bytes, file_name="labels_batch.zip", mime="application/zip", use_container_width=True)
